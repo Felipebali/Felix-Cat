@@ -3,6 +3,7 @@ import readline from 'readline';
 import fs from 'fs';
 import { makeWASocket, example } from './lib/simple.js'; // solo makeWASocket
 import { useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import pino from 'pino'; // logger compatible
 import pkg from 'google-libphonenumber'; // CommonJS
 const { PhoneNumberUtil } = pkg;
 const phoneUtil = PhoneNumberUtil.getInstance();
@@ -56,10 +57,10 @@ if (opcion === '2') {
 // Obtener versión de Baileys
 const { version } = await fetchLatestBaileysVersion();
 
-// Crear socket
+// Crear socket con logger compatible
 const { state, saveCreds } = await useMultiFileAuthState(global.sessions);
 global.conn = makeWASocket({
-    logger: { level: 'silent' },
+    logger: pino({ level: 'silent' }), // <-- aquí está la corrección
     printQRInTerminal: opcion === '1',
     browser: opcion === '1' ? Browsers.macOS('Desktop') : Browsers.macOS('Chrome'),
     auth: { creds: state.creds, keys: state.keys },
