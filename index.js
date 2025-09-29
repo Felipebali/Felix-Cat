@@ -2,8 +2,12 @@ import readline from 'readline';
 import fs from 'fs';
 import { makeWASocket, protoType, serialize } from './lib/simple.js';
 import { useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
-import { PhoneNumberUtil } from 'google-libphonenumber';
+import pkg from 'google-libphonenumber'; // <-- Import CommonJS como default
+const { PhoneNumberUtil } = pkg;
 const phoneUtil = PhoneNumberUtil.getInstance();
+
+// Aseguramos que exista la carpeta de sesiones
+if (!global.sessions) global.sessions = 'sessions';
 
 protoType();
 serialize();
@@ -37,8 +41,13 @@ if (opcion === '2') {
         phoneNumber = phoneNumber.replace(/\D/g, '');
         if (!phoneNumber.startsWith('+')) phoneNumber = `+${phoneNumber}`;
 
-        const parsed = phoneUtil.parseAndKeepRawInput(phoneNumber);
-        if (!phoneUtil.isValidNumber(parsed)) {
+        try {
+            const parsed = phoneUtil.parseAndKeepRawInput(phoneNumber);
+            if (!phoneUtil.isValidNumber(parsed)) {
+                console.log('✖ Número inválido, intenta de nuevo.');
+                phoneNumber = null;
+            }
+        } catch {
             console.log('✖ Número inválido, intenta de nuevo.');
             phoneNumber = null;
         }
