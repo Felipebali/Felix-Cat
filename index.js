@@ -1,16 +1,14 @@
+// index.js
 import readline from 'readline';
 import fs from 'fs';
-import { makeWASocket, protoType, serialize } from './lib/simple.js';
+import { makeWASocket, example } from './lib/simple.js'; // solo makeWASocket
 import { useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
-import pkg from 'google-libphonenumber'; // <-- Import CommonJS como default
+import pkg from 'google-libphonenumber'; // CommonJS
 const { PhoneNumberUtil } = pkg;
 const phoneUtil = PhoneNumberUtil.getInstance();
 
 // Aseguramos que exista la carpeta de sesiones
 if (!global.sessions) global.sessions = 'sessions';
-
-protoType();
-serialize();
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise(resolve => rl.question(text, resolve));
@@ -85,3 +83,6 @@ global.conn.ev.on('connection.update', (update) => {
     if (update.connection === 'open') console.log('✨ Felix-Cat Bot conectado correctamente ✨');
     if (update.qr && opcion === '1') console.log('❐ Escanea el QR, expira en 45 segundos');
 });
+
+// Solo un ejemplo de que simple.js funciona
+console.log(example());
