@@ -1,145 +1,78 @@
-process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '1'
+import readline from 'readline';
+import fs from 'fs';
+import { makeWASocket, protoType, serialize } from './lib/simple.js';
+import { useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import { PhoneNumberUtil } from 'google-libphonenumber';
+const phoneUtil = PhoneNumberUtil.getInstance();
 
-import './settings.js'
-import { watchFile, unwatchFile, readdirSync, existsSync, mkdirSync } from 'fs'
-import cfonts from 'cfonts'
-import { createRequire } from 'module'
-import { fileURLToPath, pathToFileURL } from 'url'
-import { platform } from 'process'
-import chalk from 'chalk'
-import syntaxerror from 'syntax-error'
-import { format } from 'util'
-import { join, dirname } from 'path'
-import { makeWASocket, protoType, serialize } from './lib/simple.js'
-import { Low, JSONFile } from 'lowdb'
-import store from './lib/store.js'
-import NodeCache from 'node-cache'
-import yargs from 'yargs'
-import { useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, jidNormalizedUser, Browsers, DisconnectReason } from '@whiskeysockets/baileys'
-import readline from 'readline'
+protoType();
+serialize();
 
-global.__filename = function filename(pathURL = import.meta.url, rmPrefix = platform !== 'win32') {
-    return rmPrefix ? /file:\/\/\//.test(pathURL) ? fileURLToPath(pathURL) : pathURL : pathToFileURL(pathURL).toString();
-};
-global.__dirname = function dirname(pathURL) {
-    return dirname(global.__filename(pathURL, true))
-};
-global.__require = function require(dir = import.meta.url) {
-    return createRequire(dir)
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const question = (text) => new Promise(resolve => rl.question(text, resolve));
+
+let opcion;
+if (!fs.existsSync(`./${global.sessions}/creds.json`)) {
+    do {
+        opcion = await question(`
+╭─────────────────────────────◉
+│ ⚙ MÉTODO DE CONEXIÓN BOT
+│ Selecciona cómo quieres conectarte:
+│ 1️⃣ Escanear Código QR
+│ 2️⃣ Código de Emparejamiento
+╰─────────────────────────────◉
+Elige (1 o 2): `);
+
+        if (!/^[1-2]$/.test(opcion)) {
+            console.log('✖ Opción inválida. Solo 1 o 2.');
+        }
+    } while (!/^[1-2]$/.test(opcion));
 }
 
-global.opts = yargs(process.argv.slice(2)).exitProcess(false).parse()
-global.prefix = new RegExp('^[!.]')
+// Si eligió código, pide el número
+let phoneNumber;
+if (opcion === '2') {
+    do {
+        phoneNumber = await question('Ingresa tu número con prefijo de país (+598...): ');
+        phoneNumber = phoneNumber.replace(/\D/g, '');
+        if (!phoneNumber.startsWith('+')) phoneNumber = `+${phoneNumber}`;
 
-global.db = new Low(new JSONFile('database.json'))
-global.loadDatabase = async function loadDatabase() {
-    if (global.db.data !== null) return
-    await global.db.read().catch(console.error)
-    global.db.data = {
-        users: {},
-        chats: {},
-        stats: {},
-        msgs: {},
-        sticker: {},
-        settings: {},
-        ...(global.db.data || {})
-    }
-    global.db.chain = global.db.data
+        const parsed = phoneUtil.parseAndKeepRawInput(phoneNumber);
+        if (!phoneUtil.isValidNumber(parsed)) {
+            console.log('✖ Número inválido, intenta de nuevo.');
+            phoneNumber = null;
+        }
+    } while (!phoneNumber);
+    rl.close();
 }
-await global.loadDatabase()
 
-protoType()
-serialize()
+// Obtener versión de Baileys
+const { version } = await fetchLatestBaileysVersion();
 
-const { state, saveCreds } = await useMultiFileAuthState('sessions')
-const { version } = await fetchLatestBaileysVersion()
-
-const conn = makeWASocket({
+// Crear socket
+const { state, saveCreds } = await useMultiFileAuthState(global.sessions);
+global.conn = makeWASocket({
     logger: { level: 'silent' },
-    printQRInTerminal: true,
-    browser: Browsers.macOS("Desktop"),
-    auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys)
-    },
-    markOnlineOnConnect: false,
-    generateHighQualityLinkPreview: true,
+    printQRInTerminal: opcion === '1',
+    browser: opcion === '1' ? Browsers.macOS('Desktop') : Browsers.macOS('Chrome'),
+    auth: { creds: state.creds, keys: state.keys },
     version
-})
-global.conn = conn
+});
 
-conn.ev.on('creds.update', saveCreds)
-conn.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update
-    if (connection === 'close') {
-        const reason = lastDisconnect?.error?.output?.statusCode
-        if (reason !== DisconnectReason.loggedOut) {
-            global.reloadHandler && global.reloadHandler(true)
-        } else {
-            console.log(chalk.redBright(`⚠︎ Sesión cerrada, inicia sesión nuevamente.`))
-        }
-    } else if (connection === 'open') {
-        console.log(chalk.greenBright(`[✔] Conectado como: ${conn.user.name || conn.user.id}`))
-    }
-})
+// Guardar credenciales automáticamente
+global.conn.ev.on('creds.update', saveCreds);
 
-// Carga de plugins
-const pluginFolder = join(global.__dirname(), './plugins/index')
-global.plugins = {}
-
-async function filesInit() {
-    for (const filename of readdirSync(pluginFolder).filter(f => f.endsWith('.js'))) {
-        try {
-            const file = global.__filename(join(pluginFolder, filename))
-            const module = await import(file)
-            global.plugins[filename] = module.default || module
-        } catch (e) {
-            console.error(e)
-            delete global.plugins[filename]
-        }
-    }
-}
-await filesInit()
-
-// Recarga automática de plugins
-import { watch } from 'fs'
-const pluginFilter = filename => /\.js$/.test(filename)
-global.reload = async (_ev, filename) => {
-    if (!pluginFilter(filename)) return
-    const dir = global.__filename(join(pluginFolder, filename), true)
-    try {
-        const module = await import(`${dir}?update=${Date.now()}`)
-        global.plugins[filename] = module.default || module
-    } catch (e) {
-        console.error(`Error cargando plugin ${filename}`, e)
-    }
-}
-watch(pluginFolder, global.reload)
-
-// Carga del handler
-let handler = await import('./handler.js')
-global.reloadHandler = async (restartConn) => {
-    try {
-        const Handler = await import(`./handler.js?update=${Date.now()}`)
-        if (Handler) handler = Handler
-    } catch (e) { console.error(e) }
-
-    if (restartConn && global.conn) {
-        global.conn.ev.removeAllListeners()
-        global.conn = makeWASocket({ ...conn, auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys) } })
-    }
-
-    global.conn.handler = handler.handler.bind(global.conn)
-    global.conn.ev.on('messages.upsert', global.conn.handler)
-    global.conn.ev.on('connection.update', connectionUpdate)
-    global.conn.ev.on('creds.update', saveCreds)
+// Si se eligió código, generar código de vinculación
+if (opcion === '2') {
+    setTimeout(async () => {
+        let code = await global.conn.requestPairingCode(phoneNumber);
+        code = code?.match(/.{1,4}/g)?.join('-') || code;
+        console.log(`\n🔐 Código de vinculación: ${code}`);
+    }, 3000);
 }
 
-async function connectionUpdate(update) {
-    const { connection } = update
-    if (connection === 'open') console.log(chalk.greenBright('[✔] Bot conectado correctamente'))
-}
-
-await global.reloadHandler()
-
-console.log(chalk.cyanBright('⚡ Félix Cat Bot iniciado sin Jadibot'))
+// Mensaje de conexión
+global.conn.ev.on('connection.update', (update) => {
+    if (update.connection === 'open') console.log('✨ Felix-Cat Bot conectado correctamente ✨');
+    if (update.qr && opcion === '1') console.log('❐ Escanea el QR, expira en 45 segundos');
+});
