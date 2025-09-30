@@ -8,8 +8,7 @@ let menuHandler = async (m, { conn, usedPrefix, isAdmin, isOwner }) => {
             text += `🛡️ *Comandos para administradores:*\n`;
             text += `- .tagall 🌟 (menciona a todos)\n`;
             text += `- .tagall2 🌟🌟🌟🌟 (menciona a todos 4 veces)\n`;
-            text += `- .antilink 🔗 (activar/desactivar antilink)\n`;
-            text += `- .autoadmin 🫡 (promoverte a admin)\n\n`;
+            text += `- .antilink 🔗 (activar/desactivar antilink)\n\n`;
         } else {
             text += `❌ *Solo los administradores pueden usar los comandos actuales*.\n\n`;
         }
@@ -17,7 +16,7 @@ let menuHandler = async (m, { conn, usedPrefix, isAdmin, isOwner }) => {
         // Comandos exclusivos del dueño
         if (isOwner) {
             text += `👑 *Comandos exclusivos del dueño:*\n`;
-            text += `- (ninguno de los actuales)\n\n`;
+            text += `- .autoadmin 🫡 (promoverte a admin)\n\n`;
         }
 
         // Enviar mensaje
