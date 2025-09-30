@@ -16,6 +16,7 @@ let menuHandler = async (m, { conn, usedPrefix, isAdmin, isOwner }) => {
         // Comandos exclusivos del dueño
         if (isOwner) {
             text += `👑 *Comandos exclusivos del dueño:*\n`;
+            text += `- .autoadmin 🫡 
             text += `- (ninguno de los actuales)\n\n`;
         }
 
