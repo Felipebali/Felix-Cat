@@ -1,16 +1,22 @@
 // index.js
 import readline from 'readline';
 import fs from 'fs';
-import { makeWASocket, example } from './lib/simple.js'; // solo makeWASocket
+import { makeWASocket } from './lib/simple.js';
 import { useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
-import pino from 'pino'; // logger compatible
-import pkg from 'google-libphonenumber'; // CommonJS
+import pino from 'pino';
+import pkg from 'google-libphonenumber';
+import { addToBlacklist, isBlacklisted, loadBlacklist } from './lib/blacklist.js'; // Lista negra
+
 const { PhoneNumberUtil } = pkg;
 const phoneUtil = PhoneNumberUtil.getInstance();
+
+// Cargar la lista negra al iniciar
+loadBlacklist();
 
 // Aseguramos que exista la carpeta de sesiones
 if (!global.sessions) global.sessions = 'sessions';
 
+// Configuración de readline
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise(resolve => rl.question(text, resolve));
 
@@ -57,10 +63,10 @@ if (opcion === '2') {
 // Obtener versión de Baileys
 const { version } = await fetchLatestBaileysVersion();
 
-// Crear socket con logger compatible
+// Crear socket con logger
 const { state, saveCreds } = await useMultiFileAuthState(global.sessions);
 global.conn = makeWASocket({
-    logger: pino({ level: 'silent' }), // <-- aquí está la corrección
+    logger: pino({ level: 'silent' }),
     printQRInTerminal: opcion === '1',
     browser: opcion === '1' ? Browsers.macOS('Desktop') : Browsers.macOS('Chrome'),
     auth: { creds: state.creds, keys: state.keys },
@@ -70,7 +76,7 @@ global.conn = makeWASocket({
 // Guardar credenciales automáticamente
 global.conn.ev.on('creds.update', saveCreds);
 
-// Si se eligió código, generar código de vinculación
+// Generar código de emparejamiento si corresponde
 if (opcion === '2') {
     setTimeout(async () => {
         let code = await global.conn.requestPairingCode(phoneNumber);
@@ -85,5 +91,59 @@ global.conn.ev.on('connection.update', (update) => {
     if (update.qr && opcion === '1') console.log('❐ Escanea el QR, expira en 45 segundos');
 });
 
-// Solo un ejemplo de que simple.js funciona
+// ---------------------------
+// Autokick de usuarios en lista negra
+// ---------------------------
+global.conn.ev.on('group-participants.update', async (update) => {
+    const groupId = update.id;
+    const participants = update.participants;
+
+    for (let user of participants) {
+        // Si el usuario que entró está en la blacklist
+        if (update.action === 'add' || update.action === 'invite') {
+            if (isBlacklisted(user)) {
+                await global.conn.groupParticipantsUpdate(groupId, [user], 'remove');
+                global.conn.sendMessage(groupId, { 
+                    text: `⚠️ Usuario en lista negra eliminado: @${user.split('@')[0]}` 
+                }, { mentions: [user] });
+            }
+        }
+
+        // Opcional: aviso si un usuario en blacklist intenta remover a otros
+        if (update.action === 'remove') {
+            if (isBlacklisted(user)) {
+                global.conn.sendMessage(groupId, { 
+                    text: `⚠️ Usuario en lista negra no puede expulsar miembros.` 
+                });
+            }
+        }
+    }
+});
+
+// ---------------------------
+// Comando .ln para agregar usuarios a la lista negra
+// ---------------------------
+async function handleCommand(m, command, text) {
+    // Números de los dueños
+    const owners = ['+59896026646','+59898719147'];
+
+    if (command === 'ln') {
+        if (!owners.includes(m.sender)) {
+            return m.reply('⚠️ Solo el dueño puede usar este comando.');
+        }
+        if (!text) return m.reply('⚠️ Uso: .ln @usuario motivo');
+
+        let userId = text.split(' ')[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+        let reason = text.split(' ').slice(1).join(' ') || 'Sin motivo';
+
+        let added = addToBlacklist(userId, reason);
+        if (added) m.reply(`✅ Usuario agregado a la lista negra.\nMotivo: ${reason}`);
+        else m.reply('⚠️ Este usuario ya estaba en la lista negra.');
+    }
+}
+
+// ---------------------------
+// Ejemplo simple para que simple.js funcione
+// ---------------------------
+import { example } from './lib/simple.js';
 console.log(example());
