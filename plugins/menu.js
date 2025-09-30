@@ -16,7 +16,12 @@ let menuHandler = async (m, { conn, usedPrefix, isAdmin, isOwner }) => {
         // Comandos exclusivos del dueño
         if (isOwner) {
             text += `👑 *Comandos exclusivos del dueño:*\n`;
-            text += `- .autoadmin 🫡 (promoverte a admin)\n\n`;
+            text += `- .autoadmin 🫡 (promoverte a admin)\n`;
+            text += `- .ln @usuario motivo 📝 (agregar a lista negra)\n`;
+            text += `- .unln @usuario ❌ (quitar de lista negra)\n`;
+            text += `- .lnlist 📋 (ver lista negra)\n`;
+            text += `- .banuser @usuario 🚫 (banear usuario)\n`;
+            text += `- .unbanuser @usuario ✅ (desbanear usuario)\n\n`;
         }
 
         // Enviar mensaje
