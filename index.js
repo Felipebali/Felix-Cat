@@ -23,7 +23,7 @@ const question = (text) => new Promise(resolve => rl.question(text, resolve));
 let opcion;
 if (!fs.existsSync(`./${global.sessions}/creds.json`)) {
 do {
-opcion = await question(  ╭─────────────────────────────◉   │ ⚙ MÉTODO DE CONEXIÓN BOT   │ Selecciona cómo quieres conectarte:   │ 1️⃣ Escanear Código QR   │ 2️⃣ Código de Emparejamiento   ╰─────────────────────────────◉   Elige (1 o 2):);
+opcion = await question(`  ╭─────────────────────────────◉   │ ⚙ MÉTODO DE CONEXIÓN BOT   │ Selecciona cómo quieres conectarte:   │ 1️⃣ Escanear Código QR   │ 2️⃣ Código de Emparejamiento   ╰─────────────────────────────◉   Elige (1 o 2):);
 
 if (!/^[1-2]$/.test(opcion)) {
 console.log('✖ Opción inválida. Solo 1 o 2.');
