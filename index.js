@@ -21,7 +21,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const question = (text) => new Promise(resolve => rl.question(text, resolve));
 
 let opcion;
-if (!fs.existsSync(./${global.sessions}/creds.json)) {
+if (!fs.existsSync(`./${global.sessions}/creds.json`)) {
 do {
 opcion = await question(  ╭─────────────────────────────◉   │ ⚙ MÉTODO DE CONEXIÓN BOT   │ Selecciona cómo quieres conectarte:   │ 1️⃣ Escanear Código QR   │ 2️⃣ Código de Emparejamiento   ╰─────────────────────────────◉   Elige (1 o 2):);
 
