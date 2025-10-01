@@ -1,7 +1,7 @@
 // index.js
 import readline from 'readline';
 import fs from 'fs';
-import { makeWASocket } from './lib/simple.js';
+import { makeWASocket, example } from './lib/simple.js';   // ✅ import example aquí arriba
 import { useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import pkg from 'google-libphonenumber';
@@ -148,13 +148,10 @@ Elige (1 o 2): `);
             else m.reply('⚠️ Este usuario ya estaba en la lista negra.');
         }
     }
-
-    // ---------------------------
-    // Ejemplo simple para simple.js
-    // ---------------------------
-    import { example } from './lib/simple.js';
-    console.log(example());
 }
 
 // Ejecutar
 startBot().catch(err => console.error('❌ Error al iniciar el bot:', err));
+
+// Ejemplo simple
+console.log(example());
