@@ -144,6 +144,3 @@ if (command === 'ln') {
 // ---------------------------
 import { example } from './lib/simple.js';
 console.log(example());
-
-Ese es el index.js porque no me deja vincular con el WhatsApp común
-
