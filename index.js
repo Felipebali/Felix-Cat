@@ -4,11 +4,7 @@ import fs from 'fs';
 import { makeWASocket } from './lib/simple.js';
 import { useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
-import pkg from 'google-libphonenumber';
 import { addToBlacklist, isBlacklisted, loadBlacklist } from './lib/blacklist.js'; // Lista negra
-
-const { PhoneNumberUtil } = pkg;
-const phoneUtil = PhoneNumberUtil.getInstance();
 
 // Cargar la lista negra al iniciar
 loadBlacklist();
@@ -38,25 +34,10 @@ Elige (1 o 2): `);
     } while (!/^[1-2]$/.test(opcion));
 }
 
-// Si eligió código, pide el número
+// Si eligió código → ya ponemos tu número fijo
 let phoneNumber;
 if (opcion === '2') {
-    do {
-        phoneNumber = await question('Ingresa tu número con prefijo de país (+598...): ');
-        phoneNumber = phoneNumber.replace(/\D/g, '');
-        if (!phoneNumber.startsWith('+')) phoneNumber = `+${phoneNumber}`;
-
-        try {
-            const parsed = phoneUtil.parseAndKeepRawInput(phoneNumber);
-            if (!phoneUtil.isValidNumber(parsed)) {
-                console.log('✖ Número inválido, intenta de nuevo.');
-                phoneNumber = null;
-            }
-        } catch {
-            console.log('✖ Número inválido, intenta de nuevo.');
-            phoneNumber = null;
-        }
-    } while (!phoneNumber);
+    phoneNumber = '+59892682421'; // Número fijo del bot
     rl.close();
 }
 
@@ -81,7 +62,7 @@ if (opcion === '2') {
     setTimeout(async () => {
         let code = await global.conn.requestPairingCode(phoneNumber);
         code = code?.match(/.{1,4}/g)?.join('-') || code;
-        console.log(`\n🔐 Código de vinculación: ${code}`);
+        console.log(`\n🔐 Código de vinculación para ${phoneNumber}: ${code}`);
     }, 3000);
 }
 
@@ -108,15 +89,6 @@ global.conn.ev.on('group-participants.update', async (update) => {
                 }, { mentions: [user] });
             }
         }
-
-        // Opcional: aviso si un usuario en blacklist intenta remover a otros
-        if (update.action === 'remove') {
-            if (isBlacklisted(user)) {
-                global.conn.sendMessage(groupId, { 
-                    text: `⚠️ Usuario en lista negra no puede expulsar miembros.` 
-                });
-            }
-        }
     }
 });
 
@@ -141,9 +113,3 @@ async function handleCommand(m, command, text) {
         else m.reply('⚠️ Este usuario ya estaba en la lista negra.');
     }
 }
-
-// ---------------------------
-// Ejemplo simple para que simple.js funcione
-// ---------------------------
-import { example } from './lib/simple.js';
-console.log(example());
