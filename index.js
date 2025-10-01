@@ -10,139 +10,144 @@ import { addToBlacklist, isBlacklisted, loadBlacklist } from './lib/blacklist.js
 const { PhoneNumberUtil } = pkg;
 const phoneUtil = PhoneNumberUtil.getInstance();
 
-// Cargar la lista negra al iniciar
+// ---------------------------
+// Cargar lista negra y sesiones
+// ---------------------------
 loadBlacklist();
-
-// Aseguramos que exista la carpeta de sesiones
 if (!global.sessions) global.sessions = 'sessions';
+if (!fs.existsSync(global.sessions)) fs.mkdirSync(global.sessions);
 
-// Configuración de readline
+// ---------------------------
+// Configuración readline para menú
+// ---------------------------
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise(resolve => rl.question(text, resolve));
 
 let opcion;
 if (!fs.existsSync(`./${global.sessions}/creds.json`)) {
-do {
-opcion = await question(`  ╭─────────────────────────────◉   │ ⚙ MÉTODO DE CONEXIÓN BOT   │ Selecciona cómo quieres conectarte:   │ 1️⃣ Escanear Código QR   │ 2️⃣ Código de Emparejamiento   ╰─────────────────────────────◉   Elige (1 o 2):);
+    do {
+        opcion = await question(`
+╭─────────────────────────────◉
+│ ⚙ MÉTODO DE CONEXIÓN BOT
+│ Selecciona cómo quieres conectarte:
+│ 1️⃣ Escanear Código QR
+│ 2️⃣ Código de Emparejamiento
+╰─────────────────────────────◉
+Elige (1 o 2): `);
 
-if (!/^[1-2]$/.test(opcion)) {
-console.log('✖ Opción inválida. Solo 1 o 2.');
+        if (!/^[1-2]$/.test(opcion)) {
+            console.log('✖ Opción inválida. Solo 1 o 2.');
+        }
+    } while (!/^[1-2]$/.test(opcion));
 }
-} while (!/^[1-2]$/.test(opcion));
 
-}
-
+// ---------------------------
 // Si eligió código, pide el número
+// ---------------------------
 let phoneNumber;
 if (opcion === '2') {
-do {
-phoneNumber = await question('Ingresa tu número con prefijo de país (+598...): ');
-phoneNumber = phoneNumber.replace(/\D/g, '');
-if (!phoneNumber.startsWith('+')) phoneNumber = +${phoneNumber};
+    do {
+        phoneNumber = await question('Ingresa tu número con prefijo de país (+598...): ');
+        phoneNumber = phoneNumber.replace(/\D/g, '');
+        if (!phoneNumber.startsWith('+')) phoneNumber = `+${phoneNumber}`;
 
-try {
-const parsed = phoneUtil.parseAndKeepRawInput(phoneNumber);
-if (!phoneUtil.isValidNumber(parsed)) {
-console.log('✖ Número inválido, intenta de nuevo.');
-phoneNumber = null;
+        try {
+            const parsed = phoneUtil.parseAndKeepRawInput(phoneNumber);
+            if (!phoneUtil.isValidNumber(parsed)) {
+                console.log('✖ Número inválido, intenta de nuevo.');
+                phoneNumber = null;
+            }
+        } catch {
+            console.log('✖ Número inválido, intenta de nuevo.');
+            phoneNumber = null;
+        }
+    } while (!phoneNumber);
+    rl.close();
 }
-} catch {
-console.log('✖ Número inválido, intenta de nuevo.');
-phoneNumber = null;
-}
-} while (!phoneNumber);
-rl.close();
 
-}
-
-// Obtener versión de Baileys
+// ---------------------------
+// Inicializar Baileys
+// ---------------------------
 const { version } = await fetchLatestBaileysVersion();
-
-// Crear socket con logger
 const { state, saveCreds } = await useMultiFileAuthState(global.sessions);
+
 global.conn = makeWASocket({
-logger: pino({ level: 'silent' }),
-printQRInTerminal: opcion === '1',
-browser: opcion === '1' ? Browsers.macOS('Desktop') : Browsers.macOS('Chrome'),
-auth: { creds: state.creds, keys: state.keys },
-version
+    logger: pino({ level: 'silent' }),
+    printQRInTerminal: opcion === '1',
+    browser: opcion === '1' ? Browsers.macOS('Desktop') : Browsers.macOS('Chrome'),
+    auth: { creds: state.creds, keys: state.keys },
+    version
 });
 
-// Guardar credenciales automáticamente
 global.conn.ev.on('creds.update', saveCreds);
 
+// ---------------------------
 // Generar código de emparejamiento si corresponde
+// ---------------------------
 if (opcion === '2') {
-setTimeout(async () => {
-let code = await global.conn.requestPairingCode(phoneNumber);
-code = code?.match(/.{1,4}/g)?.join('-') || code;
-console.log(\n🔐 Código de vinculación: ${code});
-}, 3000);
+    setTimeout(async () => {
+        let code = await global.conn.requestPairingCode(phoneNumber);
+        code = code?.match(/.{1,4}/g)?.join('-') || code;
+        console.log(`\n🔐 Código de vinculación: ${code}`);
+    }, 3000);
 }
 
-// Mensaje de conexión
+// ---------------------------
+// Mensajes de conexión
+// ---------------------------
 global.conn.ev.on('connection.update', (update) => {
-if (update.connection === 'open') console.log('✨ Felix-Cat Bot conectado correctamente ✨');
-if (update.qr && opcion === '1') console.log('❐ Escanea el QR, expira en 45 segundos');
+    if (update.connection === 'open') console.log('✨ Felix-Cat Bot conectado correctamente ✨');
+    if (update.qr && opcion === '1') console.log('❐ Escanea el QR, expira en 45 segundos');
 });
 
 // ---------------------------
 // Autokick de usuarios en lista negra
 // ---------------------------
 global.conn.ev.on('group-participants.update', async (update) => {
-const groupId = update.id;
-const participants = update.participants;
+    const groupId = update.id;
+    const participants = update.participants;
 
-for (let user of participants) {
-// Si el usuario que entró está en la blacklist
-if (update.action === 'add' || update.action === 'invite') {
-if (isBlacklisted(user)) {
-await global.conn.groupParticipantsUpdate(groupId, [user], 'remove');
-global.conn.sendMessage(groupId, {
-text: ⚠️ Usuario en lista negra eliminado: @${user.split('@')[0]}
-}, { mentions: [user] });
-}
-}
+    for (let user of participants) {
+        if (update.action === 'add' || update.action === 'invite') {
+            if (isBlacklisted(user)) {
+                await global.conn.groupParticipantsUpdate(groupId, [user], 'remove');
+                global.conn.sendMessage(groupId, {
+                    text: `⚠️ Usuario en lista negra eliminado: @${user.split('@')[0]}`
+                }, { mentions: [user] });
+            }
+        }
 
-// Opcional: aviso si un usuario en blacklist intenta remover a otros    
-if (update.action === 'remove') {    
-    if (isBlacklisted(user)) {    
-        global.conn.sendMessage(groupId, {     
-            text: `⚠️ Usuario en lista negra no puede expulsar miembros.`     
-        });    
-    }    
-}
-
-}
-
+        if (update.action === 'remove') {
+            if (isBlacklisted(user)) {
+                global.conn.sendMessage(groupId, {
+                    text: `⚠️ Usuario en lista negra no puede expulsar miembros.`
+                });
+            }
+        }
+    }
 });
 
 // ---------------------------
 // Comando .ln para agregar usuarios a la lista negra
 // ---------------------------
 async function handleCommand(m, command, text) {
-// Números de los dueños
-const owners = ['+59896026646','+59898719147'];
+    const owners = ['+59896026646','+59898719147'];
 
-if (command === 'ln') {
-if (!owners.includes(m.sender)) {
-return m.reply('⚠️ Solo el dueño puede usar este comando.');
-}
-if (!text) return m.reply('⚠️ Uso: .ln @usuario motivo');
+    if (command === 'ln') {
+        if (!owners.includes(m.sender)) return m.reply('⚠️ Solo el dueño puede usar este comando.');
+        if (!text) return m.reply('⚠️ Uso: .ln @usuario motivo');
 
-let userId = text.split(' ')[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net';    
-let reason = text.split(' ').slice(1).join(' ') || 'Sin motivo';    
+        let userId = text.split(' ')[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net';
+        let reason = text.split(' ').slice(1).join(' ') || 'Sin motivo';
 
-let added = addToBlacklist(userId, reason);    
-if (added) m.reply(`✅ Usuario agregado a la lista negra.\nMotivo: ${reason}`);    
-else m.reply('⚠️ Este usuario ya estaba en la lista negra.');
-
-}
-
+        let added = addToBlacklist(userId, reason);
+        if (added) m.reply(`✅ Usuario agregado a la lista negra.\nMotivo: ${reason}`);
+        else m.reply('⚠️ Este usuario ya estaba en la lista negra.');
+    }
 }
 
 // ---------------------------
-// Ejemplo simple para que simple.js funcione
+// Ejemplo simple para simple.js
 // ---------------------------
 import { example } from './lib/simple.js';
 console.log(example());
