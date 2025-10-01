@@ -62,7 +62,6 @@ if (opcion === '2') {
             phoneNumber = null;
         }
     } while (!phoneNumber);
-    rl.close();
 }
 
 // ---------------------------
@@ -82,14 +81,44 @@ global.conn = makeWASocket({
 global.conn.ev.on('creds.update', saveCreds);
 
 // ---------------------------
-// Generar código de emparejamiento si corresponde
+// Generar código de emparejamiento (corregido)
 // ---------------------------
 if (opcion === '2') {
+    // normalizar: quitar todo excepto dígitos y SIN el '+'
+    let rawNumber = phoneNumber.replace(/\D/g, '');
+
+    rl.close(); // cerramos readline ahora
+
+    const requestPairingWhenReady = async () => {
+        try {
+            const codeRaw = await global.conn.requestPairingCode(rawNumber);
+            const codeFormatted = (codeRaw || '').match(/.{1,4}/g)?.join('-') || codeRaw;
+            console.log(`\n🔐 Código de vinculación: ${codeFormatted}`);
+        } catch (err) {
+            console.error('✖ Error al solicitar el pairing code:', err?.message || err);
+        }
+    };
+
+    const onConnUpdate = async (update) => {
+        try {
+            const { connection, qr } = update;
+            if (connection === 'connecting' || !!qr) {
+                global.conn.ev.off('connection.update', onConnUpdate);
+                await requestPairingWhenReady();
+            }
+        } catch (e) {
+            console.error('✖ onConnUpdate error:', e);
+        }
+    };
+
+    global.conn.ev.on('connection.update', onConnUpdate);
+
     setTimeout(async () => {
-        let code = await global.conn.requestPairingCode(phoneNumber);
-        code = code?.match(/.{1,4}/g)?.join('-') || code;
-        console.log(`\n🔐 Código de vinculación: ${code}`);
-    }, 3000);
+        try {
+            await requestPairingWhenReady();
+            global.conn.ev.off('connection.update', onConnUpdate);
+        } catch { /* ignore */ }
+    }, 8000);
 }
 
 // ---------------------------
@@ -114,14 +143,6 @@ global.conn.ev.on('group-participants.update', async (update) => {
                 global.conn.sendMessage(groupId, {
                     text: `⚠️ Usuario en lista negra eliminado: @${user.split('@')[0]}`
                 }, { mentions: [user] });
-            }
-        }
-
-        if (update.action === 'remove') {
-            if (isBlacklisted(user)) {
-                global.conn.sendMessage(groupId, {
-                    text: `⚠️ Usuario en lista negra no puede expulsar miembros.`
-                });
             }
         }
     }
