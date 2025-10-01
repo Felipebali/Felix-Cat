@@ -81,15 +81,13 @@ global.conn = makeWASocket({
 global.conn.ev.on('creds.update', saveCreds);
 
 // ---------------------------
-// Generar código de emparejamiento (corregido)
+// Generar código de emparejamiento (versión estable)
 // ---------------------------
 if (opcion === '2') {
-    // normalizar: quitar todo excepto dígitos y SIN el '+'
     let rawNumber = phoneNumber.replace(/\D/g, '');
+    rl.close(); // cerramos readline
 
-    rl.close(); // cerramos readline ahora
-
-    const requestPairingWhenReady = async () => {
+    const requestPairingCodeOnce = async () => {
         try {
             const codeRaw = await global.conn.requestPairingCode(rawNumber);
             const codeFormatted = (codeRaw || '').match(/.{1,4}/g)?.join('-') || codeRaw;
@@ -102,9 +100,10 @@ if (opcion === '2') {
     const onConnUpdate = async (update) => {
         try {
             const { connection, qr } = update;
+            // Solo generamos una vez, cuando está connecting o hay qr
             if (connection === 'connecting' || !!qr) {
                 global.conn.ev.off('connection.update', onConnUpdate);
-                await requestPairingWhenReady();
+                await requestPairingCodeOnce();
             }
         } catch (e) {
             console.error('✖ onConnUpdate error:', e);
@@ -112,13 +111,6 @@ if (opcion === '2') {
     };
 
     global.conn.ev.on('connection.update', onConnUpdate);
-
-    setTimeout(async () => {
-        try {
-            await requestPairingWhenReady();
-            global.conn.ev.off('connection.update', onConnUpdate);
-        } catch { /* ignore */ }
-    }, 8000);
 }
 
 // ---------------------------
