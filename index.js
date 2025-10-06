@@ -1,169 +1,140 @@
-// index.js
-import readline from 'readline';
-import fs from 'fs';
-import { makeWASocket } from './lib/simple.js';
-import { useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
-import pino from 'pino';
-import pkg from 'google-libphonenumber';
-import { addToBlacklist, isBlacklisted, loadBlacklist } from './lib/blacklist.js'; // Lista negra
+import makeWASocket, {
+  useMultiFileAuthState,
+  DisconnectReason,
+  fetchLatestBaileysVersion
+} from '@whiskeysockets/baileys'
+import qrcode from 'qrcode-terminal'
+import fs from 'fs'
+import path from 'path'
+import cron from 'node-cron'
+import readline from 'readline'
+import { Boom } from '@hapi/boom'
 
-const { PhoneNumberUtil } = pkg;
-const phoneUtil = PhoneNumberUtil.getInstance();
+// ⚙️ CONFIGURACIÓN PRINCIPAL
+const OWNER = ['59896026646', '59898719147']
+const BOT_NAME = 'FelixCat_Bot'
+const SESSION_FOLDER = './session'
+const TEMP_FOLDER = './temp'
+const BACKUP_FOLDER = './backup'
 
-// ---------------------------
-// Cargar lista negra y sesiones
-// ---------------------------
-loadBlacklist();
-if (!global.sessions) global.sessions = 'sessions';
-if (!fs.existsSync(global.sessions)) fs.mkdirSync(global.sessions);
+// 📥 FUNCIÓN PARA INPUT EN CONSOLA
+function ask(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  return new Promise(resolve => rl.question(question, ans => {
+    rl.close()
+    resolve(ans.trim())
+  }))
+}
 
-// ---------------------------
-// Configuración readline para menú
-// ---------------------------
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const question = (text) => new Promise(resolve => rl.question(text, resolve));
+// 📂 CREAR CARPETAS NECESARIAS
+for (const dir of [SESSION_FOLDER, TEMP_FOLDER, BACKUP_FOLDER]) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+}
 
-let opcion;
-if (!fs.existsSync(`./${global.sessions}/creds.json`)) {
-    do {
-        opcion = await question(`
-╭─────────────────────────────◉
-│ ⚙ MÉTODO DE CONEXIÓN BOT
-│ Selecciona cómo quieres conectarte:
+// 🚀 FUNCIÓN PRINCIPAL DEL BOT
+async function startBot() {
+  const { state, saveCreds } = await useMultiFileAuthState(SESSION_FOLDER)
+  const { version } = await fetchLatestBaileysVersion()
+
+  console.log(`\n╭─────────────────────────────◉
+│ 🐾 MÉTODO DE CONEXIÓN - FelixCat_Bot
 │ 1️⃣ Escanear Código QR
 │ 2️⃣ Código de Emparejamiento
-╰─────────────────────────────◉
-Elige (1 o 2): `);
+╰─────────────────────────────◉`)
+  
+  const choice = await ask('Elige (1 o 2): ')
+  let pairingCode = null
 
-        if (!/^[1-2]$/.test(opcion)) {
-            console.log('✖ Opción inválida. Solo 1 o 2.');
-        }
-    } while (!/^[1-2]$/.test(opcion));
-}
+  const sock = makeWASocket({
+    version,
+    auth: state,
+    printQRInTerminal: choice === '1',
+    generateHighQualityLinkPreview: true,
+    defaultQueryTimeoutMs: undefined,
+  })
 
-// ---------------------------
-// Si eligió código, pide el número
-// ---------------------------
-let phoneNumber;
-if (opcion === '2') {
-    do {
-        phoneNumber = await question('Ingresa tu número con prefijo de país (+598...): ');
-        phoneNumber = phoneNumber.replace(/\D/g, '');
-        if (!phoneNumber.startsWith('+')) phoneNumber = `+${phoneNumber}`;
+  if (choice === '2') {
+    const number = await ask('📱 Ingresa tu número con código de país (sin +): ')
+    pairingCode = await sock.requestPairingCode(number)
+    console.log(`\n🔗 Tu código de emparejamiento es: ${pairingCode}`)
+  }
 
-        try {
-            const parsed = phoneUtil.parseAndKeepRawInput(phoneNumber);
-            if (!phoneUtil.isValidNumber(parsed)) {
-                console.log('✖ Número inválido, intenta de nuevo.');
-                phoneNumber = null;
-            }
-        } catch {
-            console.log('✖ Número inválido, intenta de nuevo.');
-            phoneNumber = null;
-        }
-    } while (!phoneNumber);
-    rl.close();
-}
-
-// ---------------------------
-// Inicializar Baileys
-// ---------------------------
-const { version } = await fetchLatestBaileysVersion();
-const { state, saveCreds } = await useMultiFileAuthState(global.sessions);
-
-global.conn = makeWASocket({
-    logger: pino({ level: 'silent' }),
-    printQRInTerminal: opcion === '1',
-    browser: opcion === '1' ? Browsers.macOS('Desktop') : Browsers.macOS('Chrome'),
-    auth: { creds: state.creds, keys: state.keys },
-    version
-});
-
-global.conn.ev.on('creds.update', saveCreds);
-
-// ---------------------------
-// Generar código de emparejamiento estable
-// ---------------------------
-if (opcion === '2') {
-    let rawNumber = phoneNumber.replace(/\D/g, ''); // solo dígitos
-
-    const requestPairingCodeOnce = async () => {
-        try {
-            const codeRaw = await global.conn.requestPairingCode(rawNumber);
-            const codeFormatted = (codeRaw || '').match(/.{1,4}/g)?.join('-') || codeRaw;
-            console.log(`\n🔐 Código de vinculación: ${codeFormatted}`);
-        } catch (err) {
-            console.error('✖ Error al solicitar el pairing code:', err?.message || err);
-        }
-    };
-
-    const onConnUpdate = async (update) => {
-        const { connection, qr } = update;
-        if (connection === 'connecting' || !!qr) {
-            global.conn.ev.off('connection.update', onConnUpdate);
-            await requestPairingCodeOnce();
-        }
-    };
-
-    global.conn.ev.on('connection.update', onConnUpdate);
-}
-
-// ---------------------------
-// Mensajes de conexión
-// ---------------------------
-global.conn.ev.on('connection.update', (update) => {
-    if (update.connection === 'open') console.log('✨ Felix-Cat Bot conectado correctamente ✨');
-    if (update.qr && opcion === '1') console.log('❐ Escanea el QR, expira en 45 segundos');
-});
-
-// ---------------------------
-// Autokick de usuarios en lista negra
-// ---------------------------
-global.conn.ev.on('group-participants.update', async (update) => {
-    const groupId = update.id;
-    const participants = update.participants;
-
-    for (let user of participants) {
-        if (update.action === 'add' || update.action === 'invite') {
-            if (isBlacklisted(user)) {
-                await global.conn.groupParticipantsUpdate(groupId, [user], 'remove');
-                global.conn.sendMessage(groupId, {
-                    text: `⚠️ Usuario en lista negra eliminado: @${user.split('@')[0]}`
-                }, { mentions: [user] });
-            }
-        }
-
-        if (update.action === 'remove') {
-            if (isBlacklisted(user)) {
-                global.conn.sendMessage(groupId, {
-                    text: `⚠️ Usuario en lista negra no puede expulsar miembros.`
-                });
-            }
-        }
+  // 📡 EVENTOS DE CONEXIÓN
+  sock.ev.on('connection.update', async (update) => {
+    const { connection, lastDisconnect } = update
+    if (connection === 'open') {
+      console.log(`✅ ${BOT_NAME} conectado correctamente.`)
+    } else if (connection === 'close') {
+      const reason = new Boom(lastDisconnect?.error)?.output?.statusCode
+      if (reason === DisconnectReason.loggedOut) {
+        console.log('🔴 Sesión cerrada. Eliminando y reiniciando...')
+        fs.rmSync(SESSION_FOLDER, { recursive: true, force: true })
+        startBot()
+      } else {
+        console.log('⚠️ Desconectado, intentando reconectar...')
+        startBot()
+      }
     }
-});
+  })
 
-// ---------------------------
-// Comando .ln para agregar usuarios a la lista negra
-// ---------------------------
-async function handleCommand(m, command, text) {
-    const owners = ['+59896026646','+59898719147'];
+  // 💬 RECEPCIÓN DE MENSAJES
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    const msg = messages[0]
+    if (!msg.message) return
+    const from = msg.key.remoteJid
+    const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
 
-    if (command === 'ln') {
-        if (!owners.includes(m.sender)) return m.reply('⚠️ Solo el dueño puede usar este comando.');
-        if (!text) return m.reply('⚠️ Uso: .ln @usuario motivo');
-
-        let userId = text.split(' ')[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net';
-        let reason = text.split(' ').slice(1).join(' ') || 'Sin motivo';
-
-        let added = addToBlacklist(userId, reason);
-        if (added) m.reply(`✅ Usuario agregado a la lista negra.\nMotivo: ${reason}`);
-        else m.reply('⚠️ Este usuario ya estaba en la lista negra.');
+    // 🔹 COMANDO .ping
+    if (text.startsWith('.ping')) {
+      await sock.sendMessage(from, { text: '🏓 ¡FelixCat_Bot está activo!' })
     }
+
+    // 🔹 COMANDO .menu
+    if (text.startsWith('.menu')) {
+      const menu = `
+🐾 *${BOT_NAME}* 🐾
+
+📋 *Menú principal:*
+• .menu - Muestra este menú
+• .ping - Ver si el bot responde
+• .owner - Ver los dueños
+• .help - Mostrar ayuda
+
+💡 Más comandos próximamente...
+`
+      await sock.sendMessage(from, { text: menu })
+    }
+
+    // 🔹 COMANDO .owner
+    if (text.startsWith('.owner')) {
+      await sock.sendMessage(from, { text: `👑 Dueños oficiales:\n${OWNER.map(o => `wa.me/${o}`).join('\n')}` })
+    }
+
+    // 🔹 COMANDO .help
+    if (text.startsWith('.help')) {
+      await sock.sendMessage(from, { text: '🐾 Usa *.menu* para ver todos los comandos disponibles.' })
+    }
+  })
+
+  sock.ev.on('creds.update', saveCreds)
 }
 
-// ---------------------------
-// Ejemplo simple para simple.js
-// ---------------------------
-import { example } from './lib/simple.js';
-console.log(example());
+// 🧹 LIMPIEZA AUTOMÁTICA DE ARCHIVOS CADA 3 HORAS
+function purgeOldFiles() {
+  const now = Date.now()
+  const limit = 3 * 60 * 60 * 1000 // 3 horas
+  for (const folder of [TEMP_FOLDER, BACKUP_FOLDER]) {
+    fs.readdirSync(folder).forEach(file => {
+      const filePath = path.join(folder, file)
+      fs.stat(filePath, (err, stats) => {
+        if (!err && now - stats.mtimeMs > limit) {
+          fs.unlinkSync(filePath)
+          console.log(`🧹 Archivo eliminado: ${file}`)
+        }
+      })
+    })
+  }
+}
+cron.schedule('0 */3 * * *', purgeOldFiles)
+
+startBot()
