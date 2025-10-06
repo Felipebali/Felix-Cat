@@ -82,14 +82,50 @@ global.conn = makeWASocket({
 global.conn.ev.on('creds.update', saveCreds);
 
 // ---------------------------
-// Generar código de emparejamiento si corresponde
+// Generar código de emparejamiento si corresponde (bloque reemplazado)
 // ---------------------------
 if (opcion === '2') {
-    setTimeout(async () => {
-        let code = await global.conn.requestPairingCode(phoneNumber);
-        code = code?.match(/.{1,4}/g)?.join('-') || code;
-        console.log(`\n🔐 Código de vinculación: ${code}`);
-    }, 3000);
+    (async function generatePairingCode() {
+        const maxAttempts = 5;
+        let attempt = 0;
+
+        const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+        const formatCode = (raw) => raw?.toString()?.match(/.{1,4}/g)?.join('-') || raw;
+
+        while (attempt < maxAttempts) {
+            attempt++;
+            try {
+                // Esperar un poco si global.conn aún no está listo
+                if (!global.conn || typeof global.conn.requestPairingCode !== 'function') {
+                    console.log(`⏳ Esperando inicialización del socket... (intento ${attempt}/${maxAttempts})`);
+                    await sleep(1500);
+                    if (attempt === maxAttempts) throw new Error('Socket no inicializado o requestPairingCode no disponible.');
+                    continue;
+                }
+
+                console.log('🔎 Generando código de emparejamiento...');
+                const rawCode = await global.conn.requestPairingCode(phoneNumber);
+                const code = formatCode(rawCode);
+
+                console.log('\n────────────────────────────────────────');
+                console.log(`🔐 Código de vinculación: ${code}`);
+                console.log('📌 Instrucciones: abre WhatsApp → Ajustes → Dispositivos vinculados → Vincular un dispositivo → Usar código de emparejamiento y pega este código.');
+                console.log('────────────────────────────────────────\n');
+
+                // Si se generó correctamente, salimos del loop
+                break;
+            } catch (err) {
+                console.error(`✖ Error generando código (intento ${attempt}/${maxAttempts}): ${err.message || err}`);
+                if (attempt < maxAttempts) {
+                    const backoff = 1500 * attempt;
+                    console.log(`↻ Reintentando en ${Math.round(backoff / 1000)}s...`);
+                    await sleep(backoff);
+                } else {
+                    console.error('✖ No fue posible generar el código de vinculación. Verifica la conexión, el número y la versión de la librería Baileys.');
+                }
+            }
+        }
+    })();
 }
 
 // ---------------------------
